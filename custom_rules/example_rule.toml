@@ -1,0 +1,32 @@
+[metadata]
+creation_date = "2025-11-09"
+updated_date = "2025-11-09"
+
+[rule]
+author = ["Your Name"]
+description = "Detects the creation of a file in the /tmp directory."
+from = "now-9m"
+index = ["logs-endpoint.events.file*"]
+language = "eql"
+license = "Elastic License v2"
+name = "File Creation in /tmp"
+risk_score = 21
+severity = "low"
+rule_id = "814E568B-9D24-4447-8E43-1EEAE11FC20A"
+type = "eql"
+
+query = '''
+file where host.os.type == "linux" and event.type == "creation" and file.path : "/tmp/*"
+'''
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+[[rule.threat.technique]]
+id = "T1059"
+name = "Command and Scripting Interpreter"
+reference = "https://attack.mitre.org/techniques/T1059/"
+
+[rule.threat.tactic]
+id = "TA0002"
+name = "Execution"
+reference = "https://attack.mitre.org/tactics/TA0002/"
