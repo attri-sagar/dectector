@@ -1,21 +1,7 @@
-# Detections as Code for Elasticsearch SIEM
+# Detections Engineering
 
-This repository contains the configuration and scripts for managing Elasticsearch SIEM detections as code.
+This repository contains tools and configurations for managing detection rules.
 
-## Workflow
+## CI/CD Setup
 
-### Rule Management
-
-1.  **Upstream Rules:** The `detection-rules` directory contains a clone of the official `elastic/detection-rules` repository. To update the rules from the upstream repository, navigate to the `detection-rules` directory and run `git pull origin main`.
-
-2.  **Custom Rules:** Custom rules can be added to the `custom_rules` directory. These rules should follow the same TOML format as the official rules.
-
-3.  **Branching Model:** A `main` branch should be used for production-ready rules. A `dev` branch should be used for development and testing of new or modified rules. All changes should be made in a feature branch and then merged into `dev`. Once the changes are tested and approved, they can be merged into `main`.
-
-### Deployment
-
-A Python script will be used to parse the rule files and deploy them to the Elasticsearch cluster via the API.
-
-### CI/CD
-
-A GitHub Actions workflow will be used to automate the testing and deployment of the rules.
+The CI/CD pipeline is now configured to automatically deploy detection rules to Kibana on pushes to the `main` branch.
