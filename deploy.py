@@ -1,86 +1,116 @@
 import os
 import toml
 import requests
-import base64
 from dotenv import load_dotenv
 
-# Load the .env file from the elastic-container directory
-dotenv_path = os.path.join(os.path.dirname(__file__), 'elastic-container', '.env')
+# Load the .env file from the project root
+dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
 load_dotenv(dotenv_path=dotenv_path)
 
-def _build_auth_header(api_key: str) -> str:
+def deploy_rules(rules, host, api_key, verify_ssl=True):
     """
-    Build the Authorization header value for an API key.
+    Deploys the given rules to the specified Kibana host using API key authentication.
 
-    The api_key can be either:
-    - a raw ApiKey token (already base64-encoded or the token string),
-      in which case it will be used as-is, or
-    - in the form "id:api_key", in which case it will be base64-encoded
-      per Elasticsearch/Kibana API Key spec.
+    Args:
+        rules: List of rules to deploy
+        host: Kibana URL (e.g., logs.r42ipu.com/api/detection_engine/rules)
+        api_key: API key for authentication
+        verify_ssl: Whether to verify SSL certificates (default: True)
     """
-    if ":" in api_key:
-        # If provided as id:api_key, base64 encode it
-        return "ApiKey " + base64.b64encode(api_key.encode()).decode()
-    # Otherwise assume the user provided the final token to send
-    return "ApiKey " + api_key
-
-def deploy_rules(rules, host, api_key):
-    """
-    Deploys the given rules to the specified Kibana/Elasticsearch host using API Key auth.
-    """
-    if not api_key:
-        raise ValueError("API key is required to deploy rules. Set ELASTIC_API_KEY (or API_KEY) in the environment.")
-
-    auth_header = _build_auth_header(api_key)
-
     print(f"Deploying {len(rules)} rules to {host}...")
+    print("Using API key authentication")
+
+    headers = {
+        "kbn-xsrf": "true",
+        "Content-Type": "application/json",
+        "Authorization": "ApiKey " + api_key
+    }
+
+    deployed_count = 0
+    failed_count = 0
+
     for rule in rules:
         rule_id = rule["rule"]["rule_id"]
-        url = f"{host}/api/detection_engine/rules?rule_id={rule_id}"
-        headers = {
-            "kbn-xsrf": "true",
-            "Authorization": auth_header,
-            "Content-Type": "application/json",
-        }
+        rule_name = rule["rule"]["name"]
+
+        # Ensure the URL ends with the detection_engine/rules endpoint
+        if not host.endswith("/api/detection_engine/rules"):
+            if host.endswith("/"):
+                url = f"{host}api/detection_engine/rules"
+            else:
+                url = f"{host}/api/detection_engine/rules"
+        else:
+            url = host
+
         try:
             response = requests.post(
                 url,
                 headers=headers,
                 json=rule["rule"],
-                verify=False,  # keep False to match previous behavior; set to True in production with valid certs
+                verify=verify_ssl,
             )
             response.raise_for_status()
-            print(f"  - Deployed rule: {rule['rule']['name']}")
+            print(f"  ✓ Deployed rule: {rule_name}")
+            deployed_count += 1
         except requests.exceptions.RequestException as e:
-            print(f"  - Error deploying rule: {rule['rule']['name']}")
+            print(f"  ✗ Error deploying rule: {rule_name}")
             print(f"    {e}")
-    print("Deployment complete.")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"    Status Code: {e.response.status_code}")
+                print(f"    Response: {e.response.text}")
+            failed_count += 1
+
+    print(f"\nDeployment complete: {deployed_count} successful, {failed_count} failed")
 
 def main():
     """
-    Parses all detection rules and deploys them to the target host.
-    Uses API key authentication (ELASTIC_API_KEY / API_KEY environment variable).
+    Parses all detection rules and deploys them to Kibana using API key authentication.
     """
-    host = "https://logs.r42ipu.com"
-    # Prefer ELASTIC_API_KEY, fall back to generic API_KEY
-    api_key = os.getenv("ELASTIC_API_KEY") or os.getenv("API_KEY")
+    host = os.getenv("KIBANA_URL", "https://logs.r42ipu.com")
+    api_key = os.getenv("KIBANA_API_KEY")
+    verify_ssl = os.getenv("VERIFY_SSL", "true").lower() in ("true", "1", "yes")
+
+    # Validate API key is provided
+    if not api_key:
+        print("Error: KIBANA_API_KEY environment variable must be set.")
+        return
 
     all_rules = []
 
+    # Parse the official rules (uncomment to deploy Elastic's official rules)
+    # for root, dirs, files in os.walk("detection-rules/rules"):
+    #     for file in files:
+    #         if file.endswith(".toml"):
+    #             rule_path = os.path.join(root, file)
+    #             try:
+    #                 with open(rule_path, "r") as f:
+    #                     rule = toml.load(f)
+    #                     all_rules.append(rule)
+    #             except (toml.TomlDecodeError, IndexError):
+    #                 continue
+
     # Parse the custom rules
-    for root, dirs, files in os.walk("custom_rules"):
-        for file in files:
-            if file.endswith(".toml"):
-                rule_path = os.path.join(root, file)
-                try:
-                    with open(rule_path, "r") as f:
-                        rule = toml.load(f)
-                        all_rules.append(rule)
-                except (toml.TomlDecodeError, IndexError):
-                    continue
+    custom_rules_dir = os.path.join(os.path.dirname(__file__), "custom_rules")
+    if os.path.exists(custom_rules_dir):
+        for root, dirs, files in os.walk(custom_rules_dir):
+            for file in files:
+                if file.endswith(".toml"):
+                    rule_path = os.path.join(root, file)
+                    try:
+                        with open(rule_path, "r") as f:
+                            rule = toml.load(f)
+                            all_rules.append(rule)
+                    except (toml.TomlDecodeError, IndexError) as e:
+                        print(f"Warning: Failed to parse {rule_path}: {e}")
+                        continue
 
     print(f"Found {len(all_rules)} rules.")
-    deploy_rules(all_rules, host, api_key)
+
+    if len(all_rules) == 0:
+        print("No rules found to deploy.")
+        return
+
+    deploy_rules(all_rules, host, api_key, verify_ssl=verify_ssl)
 
 if __name__ == "__main__":
     main()

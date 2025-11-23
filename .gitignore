@@ -11,5 +11,14 @@ venv/
 .idea/
 .vscode/
 
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+deployment.log
+
 # Other
 .DS_Store
