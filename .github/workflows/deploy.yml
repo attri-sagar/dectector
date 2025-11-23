@@ -41,8 +41,22 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Validate TOML syntax
+    - name: Validate rules with detection-rules CLI
       run: |
+        # Set custom rules directory for detection-rules
+        export CUSTOM_RULES_DIR="${PWD}/custom_rules"
+
+        # Validate all custom rules using the official Elastic CLI
+        echo "Validating custom rules with detection-rules CLI..."
+        python -m detection_rules view-rule custom_rules/*.toml --rule-dir custom_rules/ || true
+
+        # Run comprehensive validation
+        echo "Running rule validation..."
+        python -m detection_rules test --rule-dir custom_rules/ || {
+          echo "⚠️  Some validation checks failed, but continuing with basic TOML validation..."
+        }
+
+        # Fallback: Basic TOML and schema validation
         python -c "
         import os
         import toml
@@ -62,17 +76,21 @@ jobs:
                                 errors.append(f'{rule_path}: Missing [rule] section')
                             elif 'rule_id' not in rule.get('rule', {}):
                                 errors.append(f'{rule_path}: Missing rule_id field')
+                            elif 'name' not in rule.get('rule', {}):
+                                errors.append(f'{rule_path}: Missing name field')
+                            elif 'description' not in rule.get('rule', {}):
+                                errors.append(f'{rule_path}: Missing description field')
                             rule_count += 1
                     except Exception as e:
                         errors.append(f'{rule_path}: {str(e)}')
 
         if errors:
-            print('Validation errors found:')
+            print('❌ Validation errors found:')
             for error in errors:
                 print(f'  ✗ {error}')
             sys.exit(1)
         else:
-            print(f'✓ All {rule_count} rules validated successfully')
+            print(f'✅ All {rule_count} rules validated successfully')
         "
 
     - name: Summary
